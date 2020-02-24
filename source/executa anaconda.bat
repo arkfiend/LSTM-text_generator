@@ -6,4 +6,4 @@ color 9f
 ::::echo :     ::    :    ::::::
 ::echo.
 ::echo.
-%windir%\system32\cmd.exe "/K" C:\Users\gab09\Anaconda3\Scripts\activate.bat 
+%windir%\system32\cmd.exe "/K" C:\Users\%username%\Anaconda3\Scripts\activate.bat 
