@@ -8,11 +8,15 @@ import torch
 import torch.nn as nn
 ##Torch Library
 
+#To deepcopy
+import copy
+#To check time
+import time
 #Numpy to use math
 import numpy as np
 #Generating the dictionary
 from collections import Counter
-#To use files
+#To files
 import glob
 
 #--- ini archives ---
@@ -24,6 +28,7 @@ import glob
 #(array([[11,  2,  3],[22, 10, 59]]), array([[ 2,  3,  0],[10, 59, 23]]))
 batch_size = 5
 
+#Higher seq_size is, more phrase length can be translated to nn
 #number of itens inside of each list.
 ##ex: 3 batch and 1 seq_size:
 #(array([[45],[11],[7]]),array([[17],[2],[2]]))
@@ -40,7 +45,10 @@ embedding = 64
 lstm_size=128
 
 #Epochs
-epochs = 100
+epochs = 5000
+
+#Number of chars generated to output
+out_char = 100
 
 #Twins
 #False - is not aceptable same words
@@ -51,11 +59,12 @@ twins = True
 gradients_norm=5
 
 #Directories name
-#_dir = 'goncalves_dias'
-_dir = 'got'
+_dir = 'goncalves_dias'
+#_dir = 'got'
 
 #Input words. 
-ini_words = 'John Snow'
+ini_words = 'Minha terra nao tem'
+#ini_words = 'Daenerys'
 #Input words as array
 ini_words_v = []
 for w in ini_words.lower().split(" "):  ini_words_v.append( w )
@@ -71,12 +80,12 @@ for w in ini_words.lower().split(" "):  ini_words_v.append( w )
 # out_text   - Answer data --- 3/36
 #twins       - False-not allowed same words. True-allow same words
 def get_data(ini_words_v, batch_size, seq_size, twins=False):
-	if twins==False: print('Not aceptable same words')
-	else: print ('Aceptable same words')
+	if twins==False: print('|Not aceptable same words')
+	else: print ('|Aceptable same words')
 	#open all .txt documents in db dir:
 	allDocs = glob.glob( '../data/'+_dir+'/*.txt' )
 	alltext = []
-	print (' |-- Adding archives:')
+	print ('  |-- Adding archives:')
 	for doc in allDocs:
 		print ('    |-- Loading '+doc)
 		#full represents all text file content
@@ -100,10 +109,11 @@ def get_data(ini_words_v, batch_size, seq_size, twins=False):
 		alltext.append(w)
 	#Put all text in alltext:
 	
-	#word_count = represents a dictionary with all diferent words inside of archive. ex: {'bird':30, 'man':100, ...}
+	#word_count = represents a dictionary with all diferent words inside of archive. ex: 
+	#{'bird':30, 'man':100, ...}
 	word_count = Counter( alltext )
 	
-	#Another dictionary, with sorted words:
+	#Another dictionary, but now with sorted content:
 	sort = sorted(word_count, key=word_count.get, reverse=True)
 	#Each word now corresponds in one unique counter. From 0 to max:
 	#indice: number from 0 to max. Increments each loop
@@ -123,10 +133,6 @@ def get_data(ini_words_v, batch_size, seq_size, twins=False):
 	_batches = int ( len(text_in_indices)/(seq_size* batch_size) )
 	#Array that represents the text input. 
 	in_text = text_in_indices[ :_batches * batch_size * seq_size]
-	#print ( len(text_in_indices) )
-	#print ( _batches )
-	#print ( in_text )
-	
 	#Array with zeros that works like a mask to output
 	out_text = np.zeros_like(in_text)
 	#Answers are always the next word, so we need to move the indices
@@ -150,14 +156,17 @@ def get_batches(in_text, out_text, b_size, seq_size):
 	for i in range( 0, n_batch * seq_size, seq_size ):
 		yield ( in_text[:, i:i+seq_size], out_text[:, i:i+seq_size] )
 
-
 #Network
 class NL(nn.Module):
 	def __init__ ( self, max_words, seq_size, embedding_size, lstm_size ):
 		super(NL, self).__init__()
 		self.seq_size = seq_size
 		self.lstm_size = lstm_size
+		#2D array. 
+		#Rows = Different words in dictionary
+		#Cols = Embeding size
 		self.embedding = nn.Embedding( max_words, embedding_size )
+
 		self.lstm = nn.LSTM(
 			embedding_size,
 			lstm_size,
@@ -167,16 +176,12 @@ class NL(nn.Module):
 	
 	#x - ndarray int
 	def forward( self, x, prev_state ):
-		#x = x.astype( float )
-		#x = torch.from_numpy( x )
-		#x = x.long()
-		
 		embed = self.embedding(x)
-		
 		output, state = self.lstm(embed, prev_state)
 		logits = self.dense(output)
 		return logits, state
 
+	#Return two masks to use in 
 	def zero(self, batch_size):
 		return ( 
 			torch.zeros(1, batch_size, self.lstm_size),
@@ -188,28 +193,25 @@ def getLoss(net, lr=0.001):
 	optimizer = torch.optim.Adam(net.parameters(), lr=lr)
 	return criterion, optimizer
 	
-#
-def showdic(dic):
-	for i in list(dic):
-		print (i)
-		print ('---')
-	
-
 def predict(device, net, ini_words, n_vocab, vocab_to_int, int_to_vocab, top_k=5):
+	#Stop changing nn weights, to utilize validation method
 	net.eval()
 
 	state_h, state_c = net.zero(1)
-
+	
+	#Loop that goes over initial words
 	for w in ini_words:
 		#x = list(vocab_to_int)[y]
 		#error, word that doesnt belongs to dictionary. See your ini_word
 		if w not in ini_words:
 			print ('Error. Word doest not belong to dictionary')
 			exit(1)
-		#Long tensor, to match embedding
+		#Long tensor, to match embedding.
+		#ix corresponds to one word.
 		ix = torch.tensor( [[ vocab_to_int[w] ]])
 		ix = ix.type( torch.LongTensor )
-		#HERE
+		#Consider IX, as the previous state. Sending to forward function of net.
+		#state_h, state_c)
 		output, (state_h, state_c) = net(ix, (state_h, state_c))
 	
 	_, top_ix = torch.topk(output[0], k=top_k)
@@ -217,9 +219,10 @@ def predict(device, net, ini_words, n_vocab, vocab_to_int, int_to_vocab, top_k=5
 	choices = top_ix.tolist()
 	choice = np.random.choice(choices[0])
 
-	ini_words.append(int_to_vocab[choice])
+	l_ini_words = copy.deepcopy( ini_words )
+	l_ini_words.append(int_to_vocab[choice])
 
-	for _ in range(100):
+	for _ in range( out_char ):
 		ix = torch.tensor([[choice]])
 		ix = ix.type( torch.LongTensor )
 		
@@ -228,73 +231,85 @@ def predict(device, net, ini_words, n_vocab, vocab_to_int, int_to_vocab, top_k=5
 		_, top_ix = torch.topk(output[0], k=top_k)
 		choices = top_ix.tolist()
 		choice = np.random.choice(choices[0])
-		ini_words.append(int_to_vocab[choice])
+		l_ini_words.append(int_to_vocab[choice])
 
-	print(' '.join(ini_words))
+	print(' '.join(l_ini_words))
+
+def time_rest(ini, epoch, epochs):
+	_now = time.time()-ini
+	if epoch==0: 
+		rest= epochs*_now
+	else:
+		rest=(epochs - epoch)*_now/epoch
+	r = ''
+	if (rest >= 3600):
+		r=r+''+str( int(rest/3600) )+'Hrs '
+		rest = int(rest/3600)*3600-rest
+	if (rest >= 60):
+		r = r+''+str( int(rest/60) )+'Min '
+		rest = int(rest/60)*60-rest
+	#Seconds
+	if rest <0: rest=rest*-1
+	r = r+''+str( int(rest) )+'Seg'
+	return r
 
 def main():
+	#Change this to use cuda (My gpu is old... so I cant use it.)
 	device = torch.device('cpu')
 	
-	#batch size, seq_size
-	print ('Loading DB')
+	print ('|Loading DB')
 	int_to_voc, voc_to_int, max_words, in_text, out_text = get_data(ini_words_v, batch_size, seq_size, twins)
-	
+	print ('|Dictionary composed by '+str(max_words)+' words')
 	net = NL(max_words, seq_size, embedding, lstm_size)
 	criterion, optimizer = getLoss(net, 0.01)
-
-	n_bathes = np.prod(in_text.shape) // ( seq_size * batch_size) 
-	info_b = 0
 	
 	it = 0
-	print('Starting Train')
+	print('|Starting Train')
+	#Inseconds
+	start_time = time.time()
 	for epoch in range(epochs):
 		#Get the new batch
 		batch = get_batches( in_text,out_text,batch_size, seq_size )
-		#?
+		#Get two masks composed by zero
 		state_h, state_c = net.zero( batch_size )
-		info_b =info_b +1
-		
 		#x - ndarray int, representing in_text from next batch
 		#y - ndarray int, representing out_text from next batch
 		for x,y in batch:
+			#Number of iterations
 			it +=1
-			
-			#transform in Long tensors to embeddings funtion
+			#transform in Long tensors to embeddings funtion inside train
 			x,y = torch.from_numpy(x), torch.from_numpy(y)
 			x,y = x.type( torch.LongTensor ), y.type( torch.LongTensor )
-
+			#Train the network
 			net.train()
-			
+			#Gradient to zero, before backpropagation
 			optimizer.zero_grad()
 			#logits -  a tensor var
 			logits, (state_h, state_c) = net( x, (state_h, state_c) )
-			
-			#transpose = tranpose matrix
-			#Transform in float, then long
-			#y =  torch.from_numpy( y/1 )
-			#y = y.long()
-			
+			#--
 			loss = criterion(logits.transpose(1,2), y)
-			 
+			#--
 			state_h = state_h.detach()
 			state_c = state_c.detach()
-			
+			#--
 			loss_v = loss.item()
-			
+			#--
 			loss.backward()
-			
+			#--
 			_ = torch.nn.utils.clip_grad_norm_( net.parameters(), gradients_norm )
-			
+			#--
 			optimizer.step()
 			
 			#Print
 			if it %100 == 0:
-				print('  |-- Iteration (batches analised) : {}'.format(it),
-					 'Loss: %.5f' %(loss_v ),'Epoch: {}/{}'.format(epoch, epochs))
-
+				#remaining time
+				rem = time_rest(start_time, epoch, epochs)
+				print('  |-- Batches analised: {}'.format(it),'Loss: %.5f' %(loss_v ),'Epoch: {}/{}'.format(epoch, epochs), ' Remaining time: '+rem )
+				#Generates the output in text
+				predict(device, net, ini_words_v, max_words, voc_to_int, int_to_voc, top_k=5)
+				print ('  |--')
 	
 	#Save
-	predict(device, net, ini_words_v, max_words, voc_to_int, int_to_voc, top_k=5)
 	torch.save( net.state_dict(), '../model/model_{}'.format(_dir) )
 
 
