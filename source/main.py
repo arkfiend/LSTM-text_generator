@@ -10,14 +10,18 @@ import torch.nn as nn
 
 #To deepcopy
 import copy
+#Around float numbers, faster method there I find
+from math import floor
 #To check time
 import time
 #Numpy to use math
 import numpy as np
 #Generating the dictionary
 from collections import Counter
-#To files
+#Files help
 import glob
+#Argmentation
+import argparse
 
 #--- ini archives ---
 ###   BATCH_SIZE   ###
@@ -26,7 +30,7 @@ import glob
 #(array([[22, 10, 59]]), array([[10, 59, 23]])) 
 ##ex: 2 batch and 3 seq_size:
 #(array([[11,  2,  3],[22, 10, 59]]), array([[ 2,  3,  0],[10, 59, 23]]))
-batch_size = 5
+#batch_size = 5
 
 #Higher seq_size is, more phrase length can be translated to nn
 #number of itens inside of each list.
@@ -36,40 +40,73 @@ batch_size = 5
 #(array([[16,45],[1,11],[6,7]]),array([[45,17],[11,2],[7,2]]))
 ##ex: 3 batch and 5 seq_size:
 #(array([[9,41,42,43,9],[49,24,17,18,50],[58,21,22,10,59]]),array([[41,42,43,9,44],[24,17,18,50,24],[21,22,10,59,2]]))
-seq_size   = 11
+#seq_size   = 11
 
 #
-embedding = 64
+#embedding = 64
 
 #64
-lstm_size=128
+#lstm_size=128
 
-#Epochs
-epochs = 5000
+#Number of times that all selected archives will be read
+#epochs = 999999999
 
 #Number of chars generated to output
-out_char = 100
+#out_char = 100
 
 #Twins
 #False - is not aceptable same words
 #True  - is aceptable same words.
-twins = True
+#twins = True
 
 #5
-gradients_norm=5
+#gradients_norm=5
 
 #Directories name
-_dir = 'goncalves_dias'
+#_dir = 'goncalves_dias'
 #_dir = 'got'
 
 #Input words. 
-ini_words = 'Minha terra nao tem'
+#ini_words = 'Minha terra nao tem'
+#ini_words = 'Daenerys'
+#Input words as array
+##ini_words_v = []
+##for w in ini_words.lower().split(" "):  ini_words_v.append( w )
+
+
+#argmuntation
+#Call example:  python main.py -d 'directory' -i 'frase' 
+def args():
+	parser = argparse.ArgumentParser()
+	parser.add_argument('-d', type=str,  required=False, default='goncalves_dias', help='Name of dir')
+	parser.add_argument('-i', type=str,  required=False, default='Minha terra',    help='Ini words')
+	parser.add_argument('-n', type=int,  required=False, default=5,                help='Normalized gradient value')
+	parser.add_argument('-t', type=bool, required=False, default=True,             help='Same words are allowed by default. Utilize -t False to disable that')
+	parser.add_argument('-e', type=int,  required=False, default=1000,             help='Number of times tht all texts will be read')
+	parser.add_argument('-o', type=int,  required=False, default=100,              help='Number of chars predicted each 100 iterations. Default: 100')
+	parser.add_argument('-b', type=int,  required=False, default=5,                help='Number of words utilized in each batch')
+	parser.add_argument('-z', type=int,  required=False, default=-1,              help='Number of iterations qhen the model will be saved to future use')
+	parser.add_argument('-s', type=int,  required=False, default=11,               help='Number of words utilized in learning process. Higher this number, deeper learning')
+	#
+	return parser.parse_args()
+
+#--Argmentation
+arg = args()
+batch_size     = arg.b
+seq_size       = arg.s
+embedding      = 64
+lstm_size      = 128
+epochs         = arg.e
+out_char       = arg.o
+twins          = arg.t
+gradients_norm = arg.n
+_dir           = arg.d
+ini_words      = arg.i
 #ini_words = 'Daenerys'
 #Input words as array
 ini_words_v = []
 for w in ini_words.lower().split(" "):  ini_words_v.append( w )
-
-
+#--Argmentation
 
 #reading text content
 #return:
@@ -235,25 +272,49 @@ def predict(device, net, ini_words, n_vocab, vocab_to_int, int_to_vocab, top_k=5
 
 	print(' '.join(l_ini_words))
 
+#Receive the initial time, number of current epochs and max number of epochs.
+#returns a string corresponding to time in years, months, weeks, days, hours, minues and seconds
 def time_rest(ini, epoch, epochs):
+	#GEtting time passed until here
 	_now = time.time()-ini
+	#Leeting better to huge amount of texts. The real time will be get after 1 epoch
 	if epoch==0: 
-		rest= epochs*_now
+		rest= floor( epochs*_now )
 	else:
-		rest=(epochs - epoch)*_now/epoch
+		rest=floor( (epochs - epoch)*_now/epoch) 
+	#R, represents the final string to see time.
 	r = ''
+	#Year
+	if ( rest>= 29030400):
+		r=r+''+str( floor(rest/29030400) )+'Years '
+		rest = rest-floor(rest/29030400)*29030400
+	#Months
+	if ( rest>= 2419200 ):
+		r=r+''+str( floor(rest/2419200) )+'Months '
+		rest = rest-floor(rest/2419200)*2419200
+	#Weeks
+	if ( rest>= 604800 ):
+		r=r+''+str( floor(rest/604800) )+'Weeks '
+		rest = rest-floor(rest/604800)*604800
+	#days
+	if ( rest>= 86400):
+		r=r+''+str( floor(rest/86400) )+'Days '
+		rest = rest-floor(rest/86400)*86400
+	#Hours
 	if (rest >= 3600):
-		r=r+''+str( int(rest/3600) )+'Hrs '
-		rest = int(rest/3600)*3600-rest
+		r=r+''+str( floor(rest/3600) )+'Hrs '
+		rest = rest-floor(rest/3600)*3600
+	#Mins
 	if (rest >= 60):
-		r = r+''+str( int(rest/60) )+'Min '
-		rest = int(rest/60)*60-rest
+		r = r+''+str( floor(rest/60) )+'Min '
+		rest = rest-floor(rest/60)*60
 	#Seconds
-	if rest <0: rest=rest*-1
-	r = r+''+str( int(rest) )+'Seg'
+	r = r+''+str( floor(rest) )+'Seg'
+	#Returning 
 	return r
 
-def main():
+#Main function
+def main():	
 	#Change this to use cuda (My gpu is old... so I cant use it.)
 	device = torch.device('cpu')
 	
@@ -308,10 +369,14 @@ def main():
 				#Generates the output in text
 				predict(device, net, ini_words_v, max_words, voc_to_int, int_to_voc, top_k=5)
 				print ('  |--')
+			#save at each 500:
+			if arg.z > 0 and it %arg.z == 0:
+				torch.save( net.state_dict(), '../model/model_{}'.format(_dir) )
+				
 	
 	#Save
 	torch.save( net.state_dict(), '../model/model_{}'.format(_dir) )
 
 
-
-main()
+if __name__ == '__main__':
+	main()
